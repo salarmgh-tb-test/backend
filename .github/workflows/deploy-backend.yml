@@ -9,16 +9,17 @@ on:
 
 env:
   AWS_REGION: eu-north-1
-  ECR_REPOSITORY: backend # Change this to your ECR repository nameo
+  ECR_REPOSITORY: backend
   IMAGE_NAME: backend
 
 jobs:
-  detect-environment:
+  initialize:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.detect.outputs.environment }}
       values-file: ${{ steps.detect.outputs.values-file }}
       namespace: ${{ steps.detect.outputs.namespace }}
+      tag: ${{ steps.detect.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,23 +28,24 @@ jobs:
         id: detect
         run: |
           TAG="${{ github.ref_name }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Tag: $TAG"
+
+          # Set namespace (same for all environments - separate Kubernetes clusters)
+          echo "namespace=tradebytes" >> $GITHUB_OUTPUT
 
           # Match v1.0.0-alpha, v1.0.0-alpha.1, etc.
           if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
             echo "environment=dev" >> $GITHUB_OUTPUT
             echo "values-file=values-dev.yaml" >> $GITHUB_OUTPUT
-            echo "namespace=backend-dev" >> $GITHUB_OUTPUT
           # Match v1.0.0-rc, v1.0.0-rc.1, etc.
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
             echo "values-file=values-staging.yaml" >> $GITHUB_OUTPUT
-            echo "namespace=backend-staging" >> $GITHUB_OUTPUT
           # Match v1.0.0 (production - exact match, no suffix)
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
             echo "values-file=values-prod.yaml" >> $GITHUB_OUTPUT
-            echo "namespace=backend-prod" >> $GITHUB_OUTPUT
           else
             echo "Unknown tag format: $TAG"
             echo "Expected formats: v1.0.0-alpha, v1.0.0-rc, or v1.0.0"
@@ -54,15 +56,20 @@ jobs:
           echo "Values file: ${{ steps.detect.outputs.values-file }}"
           echo "Namespace: ${{ steps.detect.outputs.namespace }}"
 
-  build-and-deploy:
-    needs: detect-environment
+  build:
+    needs: initialize
     runs-on: ubuntu-latest
-    if: needs.detect-environment.outputs.environment != ''
-    # For production deployments, configure GitHub Environments with required reviewers
-    # Go to Settings > Environments > Create environment "production" > Add protection rules
+    if: needs.initialize.outputs.environment != ''
+    # Use environment context to access environment-specific secrets
     environment:
-      name: ${{ needs.detect-environment.outputs.environment == 'prod' && 'production' || needs.detect-environment.outputs.environment }}
-
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+    strategy:
+      matrix:
+        image:
+          - target: php-fpm
+            name: php-fpm
+          - target: nginx
+            name: nginx
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -73,9 +80,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Get ECR registry URL
         id: ecr
@@ -92,36 +96,62 @@ jobs:
             --repository-name ${{ env.ECR_REPOSITORY }} \
             --region ${{ env.AWS_REGION }} \
             --image-scanning-configuration scanOnPush=true \
-            --image-tag-mutability MUTABLE
+            --image-tag-mutability MUTABLE \
+            --tags Key=ManagedBy,Value=github-actions
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build php-fpm and nginx images in parallel
+      - name: Build and Push ${{ matrix.image.name }} Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: ${{ matrix.image.target }}
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.image.name }}-${{ needs.initialize.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  test:
+    needs: [initialize, build]
+    runs-on: ubuntu-latest
+    if: needs.initialize.outputs.environment != ''
+    # Use environment context to access environment-specific secrets
+    environment:
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get ECR registry URL
+        id: ecr
         run: |
-          TAG="${{ github.ref_name }}"
-          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ECR Registry: ${ECR_REGISTRY}"
 
-          docker build \
-            --target php-fpm \
-            -t "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:php-fpm-${TAG}" \
-            . &
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          docker build \
-            --target nginx \
-            -t "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:nginx-${TAG}" \
-            . &
-
-          wait
-
-          echo "Both images built successfully"
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Run end-to-end test via nginx and php-fpm
         run: |
           set -euo pipefail
 
-          TAG="${{ github.ref_name }}"
+          TAG="${{ needs.initialize.outputs.tag }}"
           ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
 
           # Create an isolated Docker network
@@ -130,7 +160,7 @@ jobs:
           # Create a volume for the SQLite database
           docker volume create backend-test-db
 
-          # Start PHP-FPM container with database volume
+          # Start PHP-FPM container with database volume (docker run will pull if needed)
           docker run -d \
             --name php-fpm \
             --network backend-test-net \
@@ -157,7 +187,7 @@ jobs:
             php artisan db:seed --force
           "
 
-          # Start Nginx container on the same network, serving the Laravel app
+          # Start Nginx container on the same network, serving the Laravel app (docker run will pull if needed)
           docker run -d \
             --name nginx \
             --network backend-test-net \
@@ -189,12 +219,27 @@ jobs:
           docker volume rm backend-test-db || true
           docker network rm backend-test-net || true
 
-      - name: Push images to Amazon ECR
-        run: |
-          TAG="${{ github.ref_name }}"
-          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
-          docker push "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:php-fpm-${TAG}"
-          docker push "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:nginx-${TAG}"
+  deploy:
+    needs: [initialize, test]
+    runs-on: ubuntu-latest
+    if: needs.initialize.outputs.environment != ''
+    # For production deployments, configure GitHub Environments with required reviewers
+    # Go to Settings > Environments > Create environment "production" > Add protection rules
+    environment:
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Note: These secrets are now environment-specific (dev, staging, production)
+        # They are automatically created by Terraform in GitHub Environments
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
@@ -207,37 +252,23 @@ jobs:
           version: "latest"
 
       - name: Configure Kubernetes
-        # Configure this based on your Kubernetes setup
-        # For GKE, EKS, AKS, or local clusters
         run: |
-          echo "Configuring Kubernetes access"
-          # Example for GKE:
-          # echo "${{ secrets.GKE_SA_KEY }}" | base64 -d > gke-key.json
-          # gcloud auth activate-service-account --key-file=gke-key.json
-          # gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
-          # Example for EKS:
-          # aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER }} --region ${{ secrets.AWS_REGION }}
-          # Example for local/minikube/kind:
-          # kubectl config use-context your-context-name
+          echo "Configuring Kubernetes access for EKS cluster"
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+          echo "Kubernetes context configured successfully"
+          kubectl cluster-info
 
-      - name: Deploy to ${{ needs.detect-environment.outputs.environment }}
+      - name: Deploy to ${{ needs.initialize.outputs.environment }}
         run: |
-          echo "Deploying version ${{ github.ref_name }} to ${{ needs.detect-environment.outputs.environment }}"
-          echo "Using values file: ${{ needs.detect-environment.outputs.values-file }}"
-          echo "Target namespace: ${{ needs.detect-environment.outputs.namespace }}"
+          echo "Deploying version ${{ needs.initialize.outputs.tag }} to ${{ needs.initialize.outputs.environment }}"
+          echo "Using values file: ${{ needs.initialize.outputs.values-file }}"
+          echo "Target namespace: ${{ needs.initialize.outputs.namespace }}"
 
-          helm upgrade --install --create-namespace \
-            -n ${{ needs.detect-environment.outputs.namespace }} \
+          helm upgrade --install \
+            -n ${{ needs.initialize.outputs.namespace }} \
             backend \
             ./helm \
-            -f ./helm/${{ needs.detect-environment.outputs.values-file }} \
-            --set image.tag=php-fpm-${{ github.ref_name }} \
-            --set nginxImage.tag=nginx-${{ github.ref_name }} \
-            --set appVersionTag=${{ github.ref_name }} \
+            -f ./helm/${{ needs.initialize.outputs.values-file }} \
+            --set appVersionTag=${{ needs.initialize.outputs.tag }} \
             --wait \
             --timeout 10m
-
-      - name: Verify deployment
-        run: |
-          kubectl get pods -n ${{ needs.detect-environment.outputs.namespace }}
-          kubectl get svc -n ${{ needs.detect-environment.outputs.namespace }}
