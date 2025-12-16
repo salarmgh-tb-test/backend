@@ -1,0 +1,16 @@
+{{- /*
+PodDisruptionBudget for backend, based on README (minAvailable: 1)
+*/ -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "backend.fullname" . }}-pdb
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "backend.selectorLabels" . | nindent 6 }}
+
+

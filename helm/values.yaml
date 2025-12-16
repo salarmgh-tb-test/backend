@@ -1,0 +1,186 @@
+replicaCount: 2
+
+appVersionTag: "v1.0.0"
+
+image:
+  repository: registry.local/backend
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nginxImage:
+  repository: registry.local/backend
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nginxConfig:
+  enabled: true
+  name: backend-nginx-config
+
+appConfig:
+  enabled: true
+  name: app-config
+  data:
+    NODE_ENV: "production"
+    LOG_CHANNEL: "stderr"
+    LOG_LEVEL: "info"
+    PORT: "3000"
+    DB_CONNECTION: "pgsql"
+    DB_HOST: "tradebytes-postgres.tradebytes.svc.cluster.local"
+    DB_PORT: "5432"
+    DB_DATABASE: "backend"
+    DB_SSL_MODE: "require"
+    DB_POOL_SIZE: "20"
+
+# PostgreSQL operator secret reference
+postgresSecret:
+  name: "backend-service-user.tradebytes-postgres.credentials.postgresql.acid.zalan.do"
+  usernameKey: "username"
+  passwordKey: "password"
+
+appSecrets:
+  enabled: true
+  name: app-secrets
+  stringData:
+    JWT_SECRET: "change-me"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: backend-sa
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+nginxSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+phpFpmSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.org/server-snippets: |
+      add_header 'Access-Control-Allow-Origin' 'http://frontend.test' always;
+      add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+      add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin' always;
+      add_header 'Access-Control-Allow-Credentials' 'true' always;
+      add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+      if ($request_method = 'OPTIONS') {
+        return 204;
+      }
+  hosts:
+    - host: backend.test
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs:
+    - name: gateway
+      sectionName: http
+  hostnames:
+    - chart-example.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /headers
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "1000m"
+    memory: "512Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+
+volumes: []
+
+volumeMounts: []
+
+terminationGracePeriodSeconds: 60
+lifecycle:
+  preStop:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - sleep 15
+
+envFrom:
+  - configMapRef:
+      name: app-config
+  - secretRef:
+      name: app-secrets
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+topologySpreadConstraints: []

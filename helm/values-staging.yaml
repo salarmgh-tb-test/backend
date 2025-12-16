@@ -1,0 +1,45 @@
+# Staging environment overrides
+replicaCount: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "750m"
+    memory: "512Mi"
+
+appConfig:
+  enabled: true
+  name: app-config
+  data:
+    NODE_ENV: "staging"
+    LOG_CHANNEL: "stderr"
+    LOG_LEVEL: "info"
+    APP_DEBUG: "false"
+    DB_CONNECTION: "pgsql"
+    DB_HOST: "tradebytes-postgres.backend-staging.svc.cluster.local"
+    DB_PORT: "5432"
+    DB_DATABASE: "backend_staging"
+    DB_SSL_MODE: "require"
+    DB_POOL_SIZE: "10"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: staging-backend.example.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+    - secretName: staging-backend-tls
+      hosts:
+        - staging-backend.example.com
+

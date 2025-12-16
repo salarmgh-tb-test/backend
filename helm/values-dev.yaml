@@ -1,0 +1,38 @@
+# Development environment overrides
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+appConfig:
+  enabled: true
+  name: app-config
+  data:
+    NODE_ENV: "development"
+    LOG_CHANNEL: "stderr"
+    LOG_LEVEL: "debug"
+    APP_DEBUG: "true"
+    DB_CONNECTION: "pgsql"
+    DB_HOST: "tradebytes-postgres.backend-dev.svc.cluster.local"
+    DB_PORT: "5432"
+    DB_DATABASE: "backend_dev"
+    DB_SSL_MODE: "prefer"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: dev-backend.example.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+

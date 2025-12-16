@@ -1,0 +1,44 @@
+#
+# Docker build context ignore file for backend (Laravel / PHP app)
+#
+
+# Git & VCS
+.git
+.gitignore
+.gitattributes
+
+# Node / frontend assets (if present)
+node_modules
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+dist
+build
+
+# Composer artefacts
+vendor
+composer.phar
+
+# IDE / editor
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+tmp
+*.log
+
+# Docker-related
+Dockerfile*
+.dockerignore
+
+
