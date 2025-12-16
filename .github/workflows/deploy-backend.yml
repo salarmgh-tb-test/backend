@@ -1,0 +1,160 @@
+name: Deploy Backend
+
+on:
+  push:
+    tags:
+      - "v*-alpha*"
+      - "v*-rc*"
+      - "v*"
+
+env:
+  REGISTRY: registry.local
+  IMAGE_NAME: backend
+
+jobs:
+  detect-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+      values-file: ${{ steps.detect.outputs.values-file }}
+      namespace: ${{ steps.detect.outputs.namespace }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect environment from tag
+        id: detect
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "Tag: $TAG"
+
+          # Match v1.0.0-alpha, v1.0.0-alpha.1, etc.
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "values-file=values-dev.yaml" >> $GITHUB_OUTPUT
+            echo "namespace=backend-dev" >> $GITHUB_OUTPUT
+          # Match v1.0.0-rc, v1.0.0-rc.1, etc.
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "values-file=values-staging.yaml" >> $GITHUB_OUTPUT
+            echo "namespace=backend-staging" >> $GITHUB_OUTPUT
+          # Match v1.0.0 (production - exact match, no suffix)
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "values-file=values-prod.yaml" >> $GITHUB_OUTPUT
+            echo "namespace=backend-prod" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown tag format: $TAG"
+            echo "Expected formats: v1.0.0-alpha, v1.0.0-rc, or v1.0.0"
+            exit 1
+          fi
+
+          echo "Detected environment: ${{ steps.detect.outputs.environment }}"
+          echo "Values file: ${{ steps.detect.outputs.values-file }}"
+          echo "Namespace: ${{ steps.detect.outputs.namespace }}"
+
+  build-and-deploy:
+    needs: detect-environment
+    runs-on: ubuntu-latest
+    if: needs.detect-environment.outputs.environment != ''
+    # For production deployments, configure GitHub Environments with required reviewers
+    # Go to Settings > Environments > Create environment "production" > Add protection rules
+    environment:
+      name: ${{ needs.detect-environment.outputs.environment == 'prod' && 'production' || needs.detect-environment.outputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to container registry
+        # Configure this based on your registry setup
+        # For local registry or private registry, add authentication here
+        run: |
+          echo "Logging in to registry ${{ env.REGISTRY }}"
+          # Example for Docker Hub:
+          # echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          # Example for AWS ECR:
+          # aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.REGISTRY }}
+          # For local registry, you may skip authentication
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value={{tag}}-php-fpm
+            type=raw,value={{tag}}-nginx
+
+      - name: Build and push PHP-FPM image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: php-fpm
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Nginx image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: nginx
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "latest"
+
+      - name: Configure Kubernetes
+        # Configure this based on your Kubernetes setup
+        # For GKE, EKS, AKS, or local clusters
+        run: |
+          echo "Configuring Kubernetes access"
+          # Example for GKE:
+          # echo "${{ secrets.GKE_SA_KEY }}" | base64 -d > gke-key.json
+          # gcloud auth activate-service-account --key-file=gke-key.json
+          # gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
+          # Example for EKS:
+          # aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER }} --region ${{ secrets.AWS_REGION }}
+          # Example for local/minikube/kind:
+          # kubectl config use-context your-context-name
+
+      - name: Deploy to ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          echo "Deploying version ${{ github.ref_name }} to ${{ needs.detect-environment.outputs.environment }}"
+          echo "Using values file: ${{ needs.detect-environment.outputs.values-file }}"
+          echo "Target namespace: ${{ needs.detect-environment.outputs.namespace }}"
+
+          helm upgrade --install --create-namespace \
+            -n ${{ needs.detect-environment.outputs.namespace }} \
+            backend \
+            ./helm \
+            -f ./helm/${{ needs.detect-environment.outputs.values-file }} \
+            --set image.tag=php-fpm-${{ github.ref_name }} \
+            --set nginxImage.tag=nginx-${{ github.ref_name }} \
+            --set appVersionTag=${{ github.ref_name }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n ${{ needs.detect-environment.outputs.namespace }}
+          kubectl get svc -n ${{ needs.detect-environment.outputs.namespace }}
+
