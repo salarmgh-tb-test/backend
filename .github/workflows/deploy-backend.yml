@@ -66,51 +66,87 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up PHP for tests
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: sqlite, pdo_sqlite
 
-      - name: Log in to container registry
-        # Configure this based on your registry setup
-        # For local registry or private registry, add authentication here
+      - name: Install PHP dependencies and prepare SQLite database
         run: |
-          echo "Logging in to registry ${{ env.REGISTRY }}"
-          # Example for Docker Hub:
-          # echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-          # Example for AWS ECR:
-          # aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.REGISTRY }}
-          # For local registry, you may skip authentication
+          composer install --no-interaction --prefer-dist
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value={{tag}}-php-fpm
-            type=raw,value={{tag}}-nginx
+          # Prepare application environment for testing
+          cp .env.example .env || true
+          php artisan key:generate
 
-      - name: Build and push PHP-FPM image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: php-fpm
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Ensure SQLite database file exists
+          mkdir -p database
+          touch database/database.sqlite
 
-      - name: Build and push Nginx image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: nginx
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Run migrations and seed data so that / returns {"name": "Tradebytes"}
+          php artisan migrate --force
+          php artisan db:seed --force
+
+      - name: Build php-fpm and nginx images in parallel
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          docker build \
+            --target php-fpm \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${TAG}" \
+            . &
+
+          docker build \
+            --target nginx \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${TAG}" \
+            . &
+
+          wait
+
+      - name: Run end-to-end test via nginx and php-fpm
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+
+          # Create an isolated Docker network
+          docker network create backend-test-net
+
+          # Start PHP-FPM container with shared SQLite database volume
+          docker run -d \
+            --name php-fpm \
+            --network backend-test-net \
+            -v "${{ github.workspace }}/database:/var/www/database" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${TAG}"
+
+          # Start Nginx container on the same network, serving the Laravel app
+          docker run -d \
+            --name nginx \
+            --network backend-test-net \
+            -v "${{ github.workspace }}/public:/var/www/public" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${TAG}"
+
+          # Give containers a bit of time to boot
+          sleep 15
+
+          # Call http://nginx/ from another container on the same network
+          RESPONSE=$(docker run --rm --network backend-test-net curlimages/curl:8.11.1 \
+            curl -s http://nginx/)
+
+          echo "Received response from nginx: $RESPONSE"
+
+          if [ "$RESPONSE" != '{"name":"Tradebytes"}' ] && [ "$RESPONSE" != '{"name": "Tradebytes"}' ]; then
+            echo "Unexpected response from nginx. Expected JSON {\"name\": \"Tradebytes\"}."
+            # Clean up before failing
+            docker rm -f nginx php-fpm || true
+            docker network rm backend-test-net || true
+            exit 1
+          fi
+
+          # Clean up containers and network after successful test
+          docker rm -f nginx php-fpm || true
+          docker network rm backend-test-net || true
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
