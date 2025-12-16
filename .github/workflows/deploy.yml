@@ -2,17 +2,10 @@ name: Build and Deploy to EKS
 
 on:
   push:
-    branches:
-      - main
-      - master
-    paths:
-      - '**/*.php'
-      - '**/*.js'
-      - '**/*.json'
-      - '**/Dockerfile'
-      - '**/composer.json'
-      - '**/composer.lock'
-      - '**/helm/**'
+    tags:
+      - "v*-alpha*"
+      - "v*-rc*"
+      - "v*"
   workflow_dispatch:
     inputs:
       image_tag:

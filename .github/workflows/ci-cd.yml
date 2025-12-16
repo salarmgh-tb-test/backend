@@ -2,24 +2,10 @@ name: CI/CD Pipeline - Build, Test, and Deploy to AWS
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - develop
-    paths:
-      - '**/*.php'
-      - '**/*.js'
-      - '**/*.json'
-      - '**/Dockerfile'
-      - '**/composer.json'
-      - '**/composer.lock'
-      - '**/helm/**'
-      - '.github/workflows/**'
-  pull_request:
-    branches:
-      - main
-      - master
-      - develop
+    tags:
+      - "v*-alpha*"
+      - "v*-rc*"
+      - "v*"
   workflow_dispatch:
     inputs:
       image_tag:
