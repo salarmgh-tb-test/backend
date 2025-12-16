@@ -8,7 +8,8 @@ on:
       - "v*"
 
 env:
-  REGISTRY: registry.local
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: backend # Change this to your ECR repository nameo
   IMAGE_NAME: backend
 
 jobs:
@@ -66,69 +67,105 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up PHP for tests
-        uses: shivammathur/setup-php@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          php-version: "8.3"
-          extensions: sqlite, pdo_sqlite
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install PHP dependencies and prepare SQLite database
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get ECR registry URL
+        id: ecr
         run: |
-          composer install --no-interaction --prefer-dist
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ECR Registry: ${ECR_REGISTRY}"
 
-          # Prepare application environment for testing
-          cp .env.example .env || true
-          php artisan key:generate
+      - name: Create ECR repository if it doesn't exist
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} || \
+          aws ecr create-repository \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --region ${{ env.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --image-tag-mutability MUTABLE
 
-          # Ensure SQLite database file exists
-          mkdir -p database
-          touch database/database.sqlite
-
-          # Run migrations and seed data so that / returns {"name": "Tradebytes"}
-          php artisan migrate --force
-          php artisan db:seed --force
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build php-fpm and nginx images in parallel
         run: |
           TAG="${{ github.ref_name }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
 
           docker build \
             --target php-fpm \
-            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${TAG}" \
+            -t "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:php-fpm-${TAG}" \
             . &
 
           docker build \
             --target nginx \
-            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${TAG}" \
+            -t "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:nginx-${TAG}" \
             . &
 
           wait
+
+          echo "Both images built successfully"
 
       - name: Run end-to-end test via nginx and php-fpm
         run: |
           set -euo pipefail
 
           TAG="${{ github.ref_name }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
 
           # Create an isolated Docker network
           docker network create backend-test-net
 
-          # Start PHP-FPM container with shared SQLite database volume
+          # Create a volume for the SQLite database
+          docker volume create backend-test-db
+
+          # Start PHP-FPM container with database volume
           docker run -d \
             --name php-fpm \
             --network backend-test-net \
-            -v "${{ github.workspace }}/database:/var/www/database" \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:php-fpm-${TAG}"
+            -v backend-test-db:/var/www/database \
+            "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:php-fpm-${TAG}"
+
+          # Wait for PHP-FPM to be ready
+          sleep 5
+
+          # Prepare SQLite database inside the container: create DB file, run migrations, seed data
+          docker exec php-fpm sh -c "
+            # Ensure .env file exists with SQLite configuration
+            if [ ! -f /var/www/.env ]; then
+              echo 'APP_NAME=Laravel' > /var/www/.env
+              echo 'APP_ENV=local' >> /var/www/.env
+              echo 'APP_KEY=' >> /var/www/.env
+              echo 'APP_DEBUG=true' >> /var/www/.env
+              echo 'DB_CONNECTION=sqlite' >> /var/www/.env
+              echo 'DB_DATABASE=/var/www/database/database.sqlite' >> /var/www/.env
+              php artisan key:generate
+            fi &&
+            touch /var/www/database/database.sqlite &&
+            php artisan migrate --force &&
+            php artisan db:seed --force
+          "
 
           # Start Nginx container on the same network, serving the Laravel app
           docker run -d \
             --name nginx \
             --network backend-test-net \
-            -v "${{ github.workspace }}/public:/var/www/public" \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nginx-${TAG}"
+            -v backend-test-db:/var/www/database \
+            "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:nginx-${TAG}"
 
           # Give containers a bit of time to boot
-          sleep 15
+          sleep 10
 
           # Call http://nginx/ from another container on the same network
           RESPONSE=$(docker run --rm --network backend-test-net curlimages/curl:8.11.1 \
@@ -140,13 +177,24 @@ jobs:
             echo "Unexpected response from nginx. Expected JSON {\"name\": \"Tradebytes\"}."
             # Clean up before failing
             docker rm -f nginx php-fpm || true
+            docker volume rm backend-test-db || true
             docker network rm backend-test-net || true
             exit 1
           fi
 
-          # Clean up containers and network after successful test
+          echo "Test passed! Response matches expected: $RESPONSE"
+
+          # Clean up containers, volume and network after successful test
           docker rm -f nginx php-fpm || true
+          docker volume rm backend-test-db || true
           docker network rm backend-test-net || true
+
+      - name: Push images to Amazon ECR
+        run: |
+          TAG="${{ github.ref_name }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          docker push "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:php-fpm-${TAG}"
+          docker push "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:nginx-${TAG}"
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
@@ -193,4 +241,3 @@ jobs:
         run: |
           kubectl get pods -n ${{ needs.detect-environment.outputs.namespace }}
           kubectl get svc -n ${{ needs.detect-environment.outputs.namespace }}
-
