@@ -1,0 +1,67 @@
+# Local development environment overrides
+# This file enables postgres-operator and postgresql for local development
+
+# PostgreSQL Operator Configuration
+postgresOperator:
+  enabled: true
+
+# PostgreSQL Instance Configuration (using postgres-operator)
+postgresql:
+  enabled: true
+  name: tradebytes-postgres
+  # namespace: if not set, will use Release.Namespace (handled in template)
+  teamId: "tradebytes"
+  volume:
+    size: 5Gi  # Smaller size for local development
+  numberOfInstances: 1  # Single instance for local development
+  users:
+    root:
+      - superuser
+      - createdb
+    backend_service_user: []
+  databases:
+    backend: backend_service_user
+  postgresql:
+    version: "17"
+  resources:
+    requests:
+      cpu: 250m  # Reduced resources for local
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# Development-friendly settings
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+appConfig:
+  enabled: true
+  name: app-config
+  data:
+    NODE_ENV: "local"
+    LOG_CHANNEL: "stderr"
+    LOG_LEVEL: "debug"
+    PORT: "3000"
+    DB_CONNECTION: "pgsql"
+    # DB_HOST, DB_PORT, DB_DATABASE will be set automatically by configmap.yaml
+    # based on postgresql.enabled = true
+    DB_SSL_MODE: "prefer"  # Less strict SSL for local
+    DB_POOL_SIZE: "10"  # Smaller pool for local
+
+# PostgreSQL operator secret reference
+postgresSecret:
+  name: "backend-service-user.tradebytes-postgres.credentials.postgresql.acid.zalan.do"
+  usernameKey: "username"
+  passwordKey: "password"
+

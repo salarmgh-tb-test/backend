@@ -1,0 +1,46 @@
+{{- if and .Values.postgresql.enabled .Values.postgresOperator.enabled }}
+apiVersion: "acid.zalan.do/v1"
+kind: postgresql
+metadata:
+  name: {{ .Values.postgresql.name }}
+  namespace: {{ .Values.postgresql.namespace | default .Release.Namespace }}
+spec:
+  teamId: {{ .Values.postgresql.teamId | quote }}
+  volume:
+    size: {{ .Values.postgresql.volume.size }}
+  numberOfInstances: {{ .Values.postgresql.numberOfInstances }}
+  users:
+    {{- range $user, $roles := .Values.postgresql.users }}
+    {{ $user }}:
+      {{- range $roles }}
+      - {{ . }}
+      {{- end }}
+    {{- end }}
+  databases:
+    {{- range $db, $owner := .Values.postgresql.databases }}
+    {{ $db }}: {{ $owner }}
+    {{- end }}
+  postgresql:
+    version: {{ .Values.postgresql.postgresql.version | quote }}
+  resources:
+    {{- with .Values.postgresql.resources }}
+    requests:
+      {{- if .requests }}
+      {{- if .requests.cpu }}
+      cpu: {{ .requests.cpu }}
+      {{- end }}
+      {{- if .requests.memory }}
+      memory: {{ .requests.memory }}
+      {{- end }}
+      {{- end }}
+    limits:
+      {{- if .limits }}
+      {{- if .limits.cpu }}
+      cpu: {{ .limits.cpu }}
+      {{- end }}
+      {{- if .limits.memory }}
+      memory: {{ .limits.memory }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}

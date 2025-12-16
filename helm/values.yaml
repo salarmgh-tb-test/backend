@@ -2,6 +2,45 @@ replicaCount: 2
 
 appVersionTag: "v1.0.0"
 
+# PostgreSQL Operator Configuration
+postgresOperator:
+  enabled: false
+
+# PostgreSQL Instance Configuration (using postgres-operator)
+postgresql:
+  enabled: false
+  name: tradebytes-postgres
+  namespace: tradebytes
+  teamId: "tradebytes"
+  volume:
+    size: 10Gi
+  numberOfInstances: 2
+  users:
+    root:
+      - superuser
+      - createdb
+    backend_service_user: []
+  databases:
+    backend: backend_service_user
+  postgresql:
+    version: "17"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+# RDS Configuration (for external database connection when postgresql.enabled is false)
+rds:
+  host: "" # RDS endpoint (e.g., mydb.xxxxx.us-east-1.rds.amazonaws.com)
+  port: "5432"
+  database: "backend"
+  username: "" # RDS master username
+  password: "" # RDS master password (should be provided via secrets or CI/CD)
+  sslMode: "require"
+
 image:
   repository: registry.local/backend
   pullPolicy: IfNotPresent
@@ -25,13 +64,14 @@ appConfig:
     LOG_LEVEL: "info"
     PORT: "3000"
     DB_CONNECTION: "pgsql"
-    DB_HOST: "tradebytes-postgres.tradebytes.svc.cluster.local"
-    DB_PORT: "5432"
-    DB_DATABASE: "backend"
+    # DB_HOST, DB_PORT, DB_DATABASE are set conditionally in configmap.yaml template
+    # based on postgresql.enabled flag
+    # If postgresql.enabled is true: uses postgres-operator configuration
+    # If postgresql.enabled is false: uses RDS configuration
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "20"
 
-# PostgreSQL operator secret reference
+# PostgreSQL operator secret reference (only used when postgresql.enabled is true)
 postgresSecret:
   name: "backend-service-user.tradebytes-postgres.credentials.postgresql.acid.zalan.do"
   usernameKey: "username"
@@ -42,6 +82,9 @@ appSecrets:
   name: app-secrets
   stringData:
     JWT_SECRET: "change-me"
+    # When postgresql.enabled is false, these should be set for RDS connection:
+    # DB_USERNAME: "your-rds-username"  # Set in CI/CD or override in values
+    # DB_PASSWORD: "your-rds-password"  # Set in CI/CD or override in values
 
 imagePullSecrets: []
 nameOverride: ""

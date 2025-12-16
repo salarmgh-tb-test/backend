@@ -7,9 +7,23 @@ metadata:
   labels:
     {{- include "backend.labels" . | nindent 4 }}
 data:
-  {{- range $key, $value := .Values.appConfig.data }}
-  {{ $key }}: {{ $value | quote }}
+  NODE_ENV: {{ .Values.appConfig.data.NODE_ENV | quote }}
+  LOG_CHANNEL: {{ .Values.appConfig.data.LOG_CHANNEL | quote }}
+  LOG_LEVEL: {{ .Values.appConfig.data.LOG_LEVEL | quote }}
+  PORT: {{ .Values.appConfig.data.PORT | quote }}
+  DB_CONNECTION: {{ .Values.appConfig.data.DB_CONNECTION | quote }}
+  {{- if .Values.postgresql.enabled }}
+  DB_HOST: {{ printf "%s.%s.svc.cluster.local" .Values.postgresql.name (.Values.postgresql.namespace | default .Release.Namespace) | quote }}
+  DB_PORT: "5432"
+  {{- $dbKeys := keys .Values.postgresql.databases }}
+  DB_DATABASE: {{ index $dbKeys 0 | quote }}
+  {{- else }}
+  DB_HOST: {{ .Values.rds.host | quote }}
+  DB_PORT: {{ .Values.rds.port | quote }}
+  DB_DATABASE: {{ .Values.rds.database | quote }}
   {{- end }}
+  DB_SSL_MODE: {{ if .Values.postgresql.enabled }}{{ .Values.appConfig.data.DB_SSL_MODE | default "require" | quote }}{{ else }}{{ .Values.rds.sslMode | quote }}{{ end }}
+  DB_POOL_SIZE: {{ .Values.appConfig.data.DB_POOL_SIZE | quote }}
 {{- end }}
 
 
