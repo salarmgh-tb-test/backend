@@ -1,0 +1,86 @@
+{{- if .Values.dbMigration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "backend.fullname" . }}-migration-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.dbMigration.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.dbMigration.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "backend.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: migration
+        {{- with .Values.phpFpmSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        image: "{{ .Values.dbMigration.image.repository | default .Values.image.repository }}:{{ if .Values.dbMigration.image.tag }}{{ .Values.dbMigration.image.tag }}{{ else }}{{ if .Values.image.tag }}{{ .Values.image.tag }}{{ else }}php-fpm-{{ .Values.appVersionTag }}{{ end }}{{ end }}"
+        imagePullPolicy: {{ .Values.dbMigration.image.pullPolicy | default .Values.image.pullPolicy }}
+        command: ["php", "artisan", "migrate", "--force"]
+        {{- with .Values.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+        # Database credentials - conditional based on postgresql.enabled
+        {{- if .Values.postgresql.enabled }}
+        # Database credentials from PostgreSQL operator secret
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresSecret.name }}
+              key: {{ .Values.postgresSecret.usernameKey }}
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresSecret.name }}
+              key: {{ .Values.postgresSecret.passwordKey }}
+        {{- else }}
+        # Database credentials from RDS (via appSecrets or environment)
+        - name: DB_USERNAME
+          {{- if .Values.rds.username }}
+          value: {{ .Values.rds.username | quote }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.appSecrets.name | default "app-secrets" }}
+              key: DB_USERNAME
+          {{- end }}
+        - name: DB_PASSWORD
+          {{- if .Values.rds.password }}
+          value: {{ .Values.rds.password | quote }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.appSecrets.name | default "app-secrets" }}
+              key: DB_PASSWORD
+          {{- end }}
+        {{- end }}
+        {{- with .Values.dbMigration.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}
+

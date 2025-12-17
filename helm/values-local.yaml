@@ -65,3 +65,11 @@ postgresSecret:
   usernameKey: "username"
   passwordKey: "password"
 
+# Database Migration Job Configuration (enabled for local development)
+dbMigration:
+  enabled: true
+
+# Database Seeding Job Configuration (enabled for local development)
+dbSeed:
+  enabled: true
+

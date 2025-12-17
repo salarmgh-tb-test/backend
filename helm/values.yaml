@@ -227,3 +227,37 @@ tolerations: []
 affinity: {}
 
 topologySpreadConstraints: []
+
+# Database Migration Job Configuration
+dbMigration:
+  enabled: true
+  image:
+    repository: "" # If empty, uses same as image.repository
+    tag: "" # If empty, uses same as image.tag
+    pullPolicy: "" # If empty, uses same as image.pullPolicy
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  backoffLimit: 3 # Number of retries before job is marked as failed
+  ttlSecondsAfterFinished: 300 # Clean up job after 5 minutes
+
+# Database Seeding Job Configuration
+dbSeed:
+  enabled: true
+  image:
+    repository: "" # If empty, uses same as image.repository
+    tag: "" # If empty, uses same as image.tag
+    pullPolicy: "" # If empty, uses same as image.pullPolicy
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  backoffLimit: 3 # Number of retries before job is marked as failed
+  ttlSecondsAfterFinished: 300 # Clean up job after 5 minutes
