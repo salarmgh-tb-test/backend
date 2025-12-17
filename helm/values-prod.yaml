@@ -46,22 +46,40 @@ appConfig:
 
 ingress:
   enabled: true
-  className: "nginx"
+  className: "alb"
   annotations:
-    nginx.org/server-snippets: |
-      add_header 'Strict-Transport-Security' 'max-age=31536000; includeSubDomains' always;
-      add_header 'X-Content-Type-Options' 'nosniff' always;
-      add_header 'X-Frame-Options' 'DENY' always;
-      add_header 'X-XSS-Protection' '1; mode=block' always;
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ""  # Set your ACM certificate ARN here
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/load-balancer-attributes: |
+      idle_timeout.timeout_seconds=60,
+      routing.http2.enabled=true,
+      deletion_protection.enabled=true
+    alb.ingress.kubernetes.io/tags: |
+      Environment=production,
+      ManagedBy=terraform
   hosts:
-    - host: backend.example.com
+    # Host value is a placeholder for routing rules. After deployment, get the ALB DNS name with:
+    # kubectl get ingress -n backend-prod -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
+    # Then access your service using that ALB DNS name (e.g., https://k8s-default-backend-xxxxx.eu-north-1.elb.amazonaws.com)
+    # Note: For HTTPS, you'll need to set alb.ingress.kubernetes.io/certificate-arn above
+    # The ALB will accept requests to its DNS name regardless of this host value
+    - host: backend.local  # Placeholder - actual access via ALB DNS name
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls:
     - secretName: backend-tls
       hosts:
-        - backend.example.com
+        - backend.local  # TLS will work with ALB DNS name if certificate-arn is set
 
 # Pod Disruption Budget for high availability
 podDisruptionBudget:
