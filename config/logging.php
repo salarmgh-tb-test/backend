@@ -127,6 +127,13 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'opentelemetry' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'debug'),
+            'handler' => \App\Logging\OpenTelemetryHandler::class,
+            'formatter' => \Monolog\Formatter\JsonFormatter::class,
+        ],
+
     ],
 
 ];

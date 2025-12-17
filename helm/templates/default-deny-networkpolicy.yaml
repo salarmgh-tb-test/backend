@@ -1,0 +1,19 @@
+{{- /*
+Default deny all ingress and egress NetworkPolicy for zero-trust security model.
+This policy applies to all pods in the namespace and should be created first.
+Specific NetworkPolicies for each component will then allow necessary traffic.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+    policy: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
