@@ -30,7 +30,6 @@ data:
       sendfile        on;
       keepalive_timeout  65;
 
-      # Upstream to PHP-FPM sidecar in the same pod
       upstream php-fpm {
         server 127.0.0.1:9000;
       }
@@ -65,5 +64,3 @@ data:
       }
     }
 {{- end }}
-
-

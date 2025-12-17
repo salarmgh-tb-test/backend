@@ -42,7 +42,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        # PHP-FPM container - runs the Laravel/PHP application (default container)
         - name: php-fpm
           {{- with .Values.phpFpmSecurityContext }}
           securityContext:
@@ -59,9 +58,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           env:
-          # Database credentials - conditional based on postgresql.enabled
           {{- if .Values.postgresql.enabled }}
-          # Database credentials from PostgreSQL operator secret
           - name: DB_USERNAME
             valueFrom:
               secretKeyRef:
@@ -73,7 +70,6 @@ spec:
                 name: {{ .Values.postgresSecret.name }}
                 key: {{ .Values.postgresSecret.passwordKey }}
           {{- else }}
-          # Database credentials from RDS (via appSecrets or environment)
           - name: DB_USERNAME
             {{- if .Values.rds.username }}
             value: {{ .Values.rds.username | quote }}
@@ -101,7 +97,6 @@ spec:
           lifecycle:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-        # Nginx container - serves HTTP and proxies to php-fpm
         - name: nginx
           {{- with .Values.nginxSecurityContext }}
           securityContext:

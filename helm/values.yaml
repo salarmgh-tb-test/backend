@@ -10,11 +10,9 @@ strategy:
     maxSurge: 1
     maxUnavailable: 0
 
-# PostgreSQL Operator Configuration
 postgresOperator:
   enabled: false
 
-# PostgreSQL Instance Configuration (using postgres-operator)
 postgresql:
   enabled: false
   name: tradebytes-postgres
@@ -40,13 +38,12 @@ postgresql:
       cpu: 2000m
       memory: 2Gi
 
-# RDS Configuration (for external database connection when postgresql.enabled is false)
 rds:
-  host: "" # RDS endpoint (e.g., mydb.xxxxx.us-east-1.rds.amazonaws.com)
+  host: ""
   port: "5432"
   database: "backend"
-  username: "" # RDS master username
-  password: "" # RDS master password (should be provided via secrets or CI/CD)
+  username: ""
+  password: ""
   sslMode: "require"
 
 image:
@@ -72,10 +69,6 @@ appConfig:
     LOG_LEVEL: "info"
     PORT: "3000"
     DB_CONNECTION: "pgsql"
-    # DB_HOST, DB_PORT, DB_DATABASE are set conditionally in configmap.yaml template
-    # based on postgresql.enabled flag
-    # If postgresql.enabled is true: uses postgres-operator configuration
-    # If postgresql.enabled is false: uses RDS configuration
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "20"
 
@@ -104,7 +97,6 @@ appConfig:
     OTEL_SPAN_VIEWS: "true"
     OTEL_SPAN_EVENTS: "true"
 
-# PostgreSQL operator secret reference (only used when postgresql.enabled is true)
 postgresSecret:
   name: "backend-service-user.tradebytes-postgres.credentials.postgresql.acid.zalan.do"
   usernameKey: "username"
@@ -115,9 +107,6 @@ appSecrets:
   name: app-secrets
   stringData:
     JWT_SECRET: "change-me"
-    # When postgresql.enabled is false, these should be set for RDS connection:
-    # DB_USERNAME: "your-rds-username"  # Set in CI/CD or override in values
-    # DB_PASSWORD: "your-rds-password"  # Set in CI/CD or override in values
 
 imagePullSecrets: []
 nameOverride: ""
@@ -134,7 +123,7 @@ podLabels: {}
 
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 33 # www-data user for PHP-FPM
+  runAsUser: 33
   runAsGroup: 33
   fsGroup: 33
   seccompProfile:
@@ -142,7 +131,7 @@ podSecurityContext:
 
 nginxSecurityContext:
   runAsNonRoot: true
-  runAsUser: 101 # nginx user
+  runAsUser: 101
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: false
   capabilities:
@@ -151,7 +140,7 @@ nginxSecurityContext:
 
 phpFpmSecurityContext:
   runAsNonRoot: true
-  runAsUser: 33 # www-data user
+  runAsUser: 33
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: false
   capabilities:
@@ -247,13 +236,6 @@ volumes: []
 volumeMounts: []
 
 terminationGracePeriodSeconds: 60
-lifecycle:
-  preStop:
-    exec:
-      command:
-        - /bin/sh
-        - -c
-        - sleep 15
 
 envFrom:
   - configMapRef:
@@ -269,13 +251,12 @@ affinity: {}
 
 topologySpreadConstraints: []
 
-# Database Migration Job Configuration
 dbMigration:
   enabled: true
   image:
-    repository: "" # If empty, uses same as image.repository
-    tag: "" # If empty, uses same as image.tag
-    pullPolicy: "" # If empty, uses same as image.pullPolicy
+    repository: ""
+    tag: ""
+    pullPolicy: ""
   resources:
     requests:
       cpu: "100m"
@@ -283,16 +264,15 @@ dbMigration:
     limits:
       cpu: "500m"
       memory: "256Mi"
-  backoffLimit: 3 # Number of retries before job is marked as failed
-  ttlSecondsAfterFinished: 300 # Clean up job after 5 minutes
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
 
-# Database Seeding Job Configuration
 dbSeed:
   enabled: true
   image:
-    repository: "" # If empty, uses same as image.repository
-    tag: "" # If empty, uses same as image.tag
-    pullPolicy: "" # If empty, uses same as image.pullPolicy
+    repository: ""
+    tag: ""
+    pullPolicy: ""
   resources:
     requests:
       cpu: "100m"
@@ -300,5 +280,5 @@ dbSeed:
     limits:
       cpu: "500m"
       memory: "256Mi"
-  backoffLimit: 3 # Number of retries before job is marked as failed
-  ttlSecondsAfterFinished: 300 # Clean up job after 5 minutes
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300

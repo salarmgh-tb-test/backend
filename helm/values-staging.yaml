@@ -1,4 +1,3 @@
-# Staging environment overrides
 replicaCount: 2
 
 autoscaling:
@@ -30,7 +29,6 @@ appConfig:
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "10"
 
-    # OpenTelemetry Configuration - Staging Settings
     OTEL_ENABLED: "true"
     OTEL_SERVICE_NAME: "laravel-backend-staging"
     OTEL_SERVICE_VERSION: "1.0.0"
@@ -49,7 +47,6 @@ appSecrets:
   enabled: true
   name: app-secrets
   stringData:
-    # Laravel APP_KEY - properly formatted base64-encoded 32-byte key
     APP_KEY: "base64:76sQIX/vQyRd548JKWgVgXOWJgPIk3P0SljGiL6DL2g="
     JWT_SECRET: "change-me"
 
@@ -61,7 +58,7 @@ ingress:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/certificate-arn: "" # Set your ACM certificate ARN here
+    alb.ingress.kubernetes.io/certificate-arn: ""
     alb.ingress.kubernetes.io/healthcheck-path: /up
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
@@ -72,17 +69,11 @@ ingress:
       idle_timeout.timeout_seconds=60,
       routing.http2.enabled=true
   hosts:
-    # Host value is a placeholder for routing rules. After deployment, get the ALB DNS name with:
-    # kubectl get ingress -n backend-staging -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
-    # Then access your service using that ALB DNS name (e.g., https://k8s-default-backend-xxxxx.eu-north-1.elb.amazonaws.com)
-    # Note: For HTTPS, you'll need to set alb.ingress.kubernetes.io/certificate-arn above
-    # The ALB will accept requests to its DNS name regardless of this host value
-    - host: staging-backend.local # Placeholder - actual access via ALB DNS name
+    - host: staging-backend.local
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls:
     - secretName: staging-backend-tls
       hosts:
-        - staging-backend.local # TLS will work with ALB DNS name if certificate-arn is set
-
+        - staging-backend.local

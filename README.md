@@ -1,59 +1,198 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Backend Service - Kubernetes Deployment
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## Overview
 
-## About Laravel
+The backend service is a Laravel application deployed to Kubernetes using Helm charts. It follows production-grade best practices for security, scalability, and observability.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Architecture
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+**Architecture**: Multi-container pod with PHP-FPM and Nginx
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+**Container Responsibilities**:
 
-## Learning Laravel
+-   **PHP-FPM**: Executes Laravel application logic
+-   **Nginx**: Reverse proxy, serves static assets, handles HTTP requests
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Key Features
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+-   Termination grace period (60s) for in-flight requests
+-   Database connection pooling
+-   OpenTelemetry integration for observability
+-   Observability dependencies (Prometheus Operator) managed via Helm chart dependencies
 
-## Laravel Sponsors
+## Dependencies & Observability
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+-   **Prometheus Operator**: Backend monitoring and metrics collection dependencies are handled by the Helm chart through the Prometheus Operator dependency. ServiceMonitor resources are automatically created to expose application metrics to Prometheus, eliminating the need for manual configuration
+-   **Service Discovery**: The Helm chart integrates with Prometheus Operator to automatically configure metric scraping, ensuring observability is built into the deployment
 
-### Premium Partners
+## Container Image
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+-   **Lightweight**: Dockerfile uses Alpine Linux base image, resulting in minimal image size and reduced attack surface
+-   **Cache-Friendly**: Multi-stage builds and layer ordering optimize Docker layer caching, reducing build times and bandwidth usage during deployments
+-   **Security**: Minimal base image reduces vulnerabilities, and security best practices (non-root user, minimal packages) are enforced at the image level
 
-## Contributing
+## User ID Rationale
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+-   **UID 33 (www-data)**: Standard user for PHP-FPM in Alpine Linux containers
+-   **UID 101 (nginx)**: Standard user for Nginx in Alpine Linux containers
+-   Matching container user IDs ensures proper file permissions and security
 
-## Code of Conduct
+## Resource Allocation
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+| Component         | CPU Request | CPU Limit | Memory Request | Memory Limit |
+| ----------------- | ----------- | --------- | -------------- | ------------ |
+| Backend (PHP-FPM) | 250m        | 1000m     | 256Mi          | 512Mi        |
+| Backend (Nginx)   | 100m        | 500m      | 128Mi          | 256Mi        |
 
-## Security Vulnerabilities
+**QoS Class**: Burstable (requests ≠ limits) - provides flexibility with resource protection, allowing pods to burst beyond requests when capacity is available.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Helm-Based Deployment
 
-## License
+**Decision**: Everything is packaged and deployed using Helm charts
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+**Rationale**:
+
+-   **Unified Deployment**: All Kubernetes resources (Deployments, Services, ConfigMaps, Secrets, NetworkPolicies, HPA, PDB) are defined and managed through Helm charts, ensuring consistency across environments
+-   **Dependency Management**: External dependencies like Prometheus Operator are managed as Helm chart dependencies, providing version control and automated installation
+-   **Environment-Specific Configuration**: Helm values files enable easy customization for different environments (dev, staging, production) without code duplication
+-   **Versioning & Rollback**: Helm tracks release versions, enabling easy rollback to previous configurations
+-   **Template Reusability**: Helm templates reduce duplication and ensure consistent resource definitions across components
+-   **CI/CD Integration**: Helm charts integrate seamlessly with CI/CD pipelines, enabling automated deployments
+-   **Infrastructure as Code**: All infrastructure configuration is version-controlled and declarative, following GitOps principles
+
+## Deployment Strategy
+
+**Strategy**: Rolling Update with `maxSurge: 1` and `maxUnavailable: 0`
+
+**Benefits**:
+
+-   Zero-downtime deployments
+-   New pods are created before old ones are terminated
+-   One pod at a time ensures service stability
+-   Automatic rollback on failure
+
+## Horizontal Pod Autoscaling
+
+**Configuration**: HPA based on CPU (70%) and memory (80%) utilization
+
+**Scaling Range**: 2-10 replicas
+
+**Scaling Behavior**:
+
+-   **Scale Up**: Aggressive (2 pods per 60s) to handle traffic spikes
+-   **Scale Down**: Conservative (25% reduction per 60s) to prevent thrashing
+
+**Trade-off**: Slower scale-down prevents premature pod termination but may result in over-provisioning during traffic drops.
+
+## Health Checks
+
+**Implementation**: Both liveness and readiness probes
+
+-   **Liveness Probe**: Detects deadlocked containers and triggers restart
+-   **Readiness Probe**: Ensures traffic only routes to healthy pods
+-   **Different Timings**: Readiness checks more frequently to respond quickly to health changes
+
+## PodDisruptionBudget
+
+**Configuration**: `minAvailable: 1` for stateless services
+
+**Benefits**:
+
+-   Protects against node maintenance, cluster upgrades
+-   Ensures at least one pod remains available
+-   Maintains service continuity during voluntary disruptions
+
+## Network Security
+
+**Model**: Zero-trust networking with NetworkPolicies
+
+**Backend Policy**: Allows ingress from ingress controller, egress to PostgreSQL and DNS
+
+**Benefits**:
+
+-   Limits lateral movement in case of compromise
+-   Reduces attack surface
+-   Enforces least-privilege network access
+
+## Database Migration Strategy
+
+**Implementation**: Kubernetes Jobs for migrations and seeding, configured as Helm post-install and post-upgrade hooks
+
+**Process**:
+
+1. Run migration job before deployment
+2. Verify migration success
+3. Deploy new application version
+4. Monitor for issues
+
+**Environment-Specific Usage**:
+
+-   **Development/Staging**: Migration and seed jobs are enabled via Helm hooks (post-install and post-upgrade) to automate database setup and updates
+-   **Production**: Migration and seed jobs should be disabled and run manually or through a separate CI/CD pipeline. This provides better control, auditability, and reduces the risk of automatic migrations affecting production data
+-   The `enabled` flag allows easy toggling of migration jobs per environment
+
+## Security Architecture
+
+### Container Security Context
+
+**Per-container hardening**:
+
+-   `runAsNonRoot: true` - Prevents privilege escalation
+-   `allowPrivilegeEscalation: false` - Blocks privilege escalation
+-   `capabilities.drop: ALL` - Removes all Linux capabilities
+
+### Service Accounts
+
+**Configuration**: Service account with `automountServiceAccountToken: false`
+
+**Benefits**:
+
+-   Reduces attack surface
+-   Prevents unauthorized API server access
+-   Follows least-privilege principle
+
+## Monitoring & Observability
+
+**Stack**:
+
+-   **Metrics**: Prometheus + Grafana
+-   **Logging**: ELK Stack or Loki
+-   **Tracing**: Jaeger (via OpenTelemetry)
+
+**Key Metrics to Monitor**:
+
+-   Pod CPU/Memory utilization
+-   Request latency (p50, p95, p99)
+-   Error rates
+-   Database connection pool usage
+-   HPA scaling events
+
+## Logging Strategy
+
+**Implementation**: Structured logging to stdout/stderr
+
+## Deployment Commands
+
+### Standard Rolling Deployment
+
+1. Update image tag in Helm values
+2. Deploy using Helm: `helm upgrade --install backend ./helm -f values-prod.yaml`
+3. Monitor rollout: `kubectl rollout status deployment/backend`
+4. Verify health: Check pod logs and metrics
+5. Rollback if needed: `kubectl rollout undo deployment/backend`
+
+## Configuration Management
+
+### ConfigMaps
+
+Externalize all non-sensitive configuration in ConfigMaps:
+
+-   Environment-specific configuration without image rebuilds
+-   Version control of configuration
+-   Easy rollback of configuration changes
+
+### Secrets
+
+Store sensitive data like passwords separately in secrets. Kubernetes Secrets with base64 encoding used in CI/CD.
+
+**Future Enhancement**: Integrate with AWS Secrets Manager or HashiCorp Vault

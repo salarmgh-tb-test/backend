@@ -1,4 +1,3 @@
-# Production environment overrides
 replicaCount: 3
 
 autoscaling:
@@ -44,7 +43,6 @@ appConfig:
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "50"
 
-    # OpenTelemetry Configuration - Production Settings
     OTEL_ENABLED: "true"
     OTEL_SERVICE_NAME: "laravel-backend-prod"
     OTEL_SERVICE_VERSION: "1.0.0"
@@ -63,8 +61,6 @@ appSecrets:
   enabled: true
   name: app-secrets
   stringData:
-    # Laravel APP_KEY - properly formatted base64-encoded 32-byte key
-    # IMPORTANT: This is a unique key for production - keep it secure!
     APP_KEY: "base64:Fa6nZ0a/IGxMNreEZ1yed6z/G1LoAANJh0DXWTYGX/M="
     JWT_SECRET: "change-me"
 
@@ -76,7 +72,7 @@ ingress:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/certificate-arn: ""  # Set your ACM certificate ARN here
+    alb.ingress.kubernetes.io/certificate-arn: ""
     alb.ingress.kubernetes.io/healthcheck-path: /up
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
@@ -91,26 +87,19 @@ ingress:
       Environment=production,
       ManagedBy=terraform
   hosts:
-    # Host value is a placeholder for routing rules. After deployment, get the ALB DNS name with:
-    # kubectl get ingress -n backend-prod -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
-    # Then access your service using that ALB DNS name (e.g., https://k8s-default-backend-xxxxx.eu-north-1.elb.amazonaws.com)
-    # Note: For HTTPS, you'll need to set alb.ingress.kubernetes.io/certificate-arn above
-    # The ALB will accept requests to its DNS name regardless of this host value
-    - host: backend.local  # Placeholder - actual access via ALB DNS name
+    - host: backend.local
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls:
     - secretName: backend-tls
       hosts:
-        - backend.local  # TLS will work with ALB DNS name if certificate-arn is set
+        - backend.local
 
-# Pod Disruption Budget for high availability
 podDisruptionBudget:
   enabled: true
   minAvailable: 2
 
-# Topology spread for zone distribution
 topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
@@ -119,7 +108,6 @@ topologySpreadConstraints:
       matchLabels:
         app.kubernetes.io/name: backend
 
-# Node affinity for production nodes
 affinity:
   nodeAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
@@ -130,4 +118,3 @@ affinity:
               operator: In
               values:
                 - production
-

@@ -1,4 +1,3 @@
-# Development environment overrides
 replicaCount: 1
 
 autoscaling:
@@ -26,7 +25,6 @@ appConfig:
     DB_DATABASE: "backend_dev"
     DB_SSL_MODE: "prefer"
 
-    # OpenTelemetry Configuration - Dev Settings
     OTEL_ENABLED: "true"
     OTEL_SERVICE_NAME: "laravel-backend-dev"
     OTEL_SERVICE_VERSION: "1.0.0"
@@ -45,7 +43,6 @@ appSecrets:
   enabled: true
   name: app-secrets
   stringData:
-    # Laravel APP_KEY - properly formatted base64-encoded 32-byte key
     APP_KEY: "base64:qLnGVkERzZS43UZNGJcyUwKcwH/ch2aF/cGG56OHfgg="
     JWT_SECRET: "change-me"
 
@@ -63,9 +60,6 @@ ingress:
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
   hosts:
-    # Host value is used for ALB listener rule matching.
-    # Access your service using the ALB DNS name with this Host header:
-    # curl -H "Host: dev-backend.test" http://<ALB-DNS-NAME>/up
     - host: dev-backend.test
       paths:
         - path: /

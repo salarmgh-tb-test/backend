@@ -1,6 +1,3 @@
-{{- /*
-PodDisruptionBudget for backend, based on README (minAvailable: 1)
-*/ -}}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

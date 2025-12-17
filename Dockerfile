@@ -58,7 +58,6 @@ CMD ["php-fpm"]
 
 FROM nginx:1.29.4-alpine3.23 AS nginx
 
-# Create nginx cache directories with correct permissions
 RUN mkdir -p /var/cache/nginx/client_temp \
     /var/cache/nginx/proxy_temp \
     /var/cache/nginx/fastcgi_temp \

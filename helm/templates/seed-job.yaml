@@ -48,9 +48,7 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         env:
-        # Database credentials - conditional based on postgresql.enabled
         {{- if .Values.postgresql.enabled }}
-        # Database credentials from PostgreSQL operator secret
         - name: DB_USERNAME
           valueFrom:
             secretKeyRef:
@@ -62,7 +60,6 @@ spec:
               name: {{ .Values.postgresSecret.name }}
               key: {{ .Values.postgresSecret.passwordKey }}
         {{- else }}
-        # Database credentials from RDS (via appSecrets or environment)
         - name: DB_USERNAME
           {{- if .Values.rds.username }}
           value: {{ .Values.rds.username | quote }}
