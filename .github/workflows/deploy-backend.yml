@@ -251,6 +251,60 @@ jobs:
         with:
           version: "latest"
 
+      - name: Get ECR registry URL
+        id: ecr
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ECR Registry: ${ECR_REGISTRY}"
+
+      - name: Get RDS information from AWS
+        id: rds
+        run: |
+          # Get RDS instance identifier from secret (e.g., tradebytes-dev-db, tradebytes-staging-db, tradebytes-prod-db)
+          RDS_IDENTIFIER="${{ secrets.RDS_IDENTIFIER }}"
+
+          if [ -z "$RDS_IDENTIFIER" ]; then
+            echo "RDS_IDENTIFIER secret not set, falling back to environment-based naming"
+            ENV="${{ needs.initialize.outputs.environment }}"
+            RDS_IDENTIFIER="tradebytes-${ENV}-db"
+          fi
+
+          echo "Querying RDS instance: ${RDS_IDENTIFIER}"
+
+          # Query AWS for RDS instance details
+          RDS_ENDPOINT=$(aws rds describe-db-instances \
+            --db-instance-identifier "${RDS_IDENTIFIER}" \
+            --query 'DBInstances[0].Endpoint.Address' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+
+          RDS_PORT=$(aws rds describe-db-instances \
+            --db-instance-identifier "${RDS_IDENTIFIER}" \
+            --query 'DBInstances[0].Endpoint.Port' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+
+          RDS_DB_NAME=$(aws rds describe-db-instances \
+            --db-instance-identifier "${RDS_IDENTIFIER}" \
+            --query 'DBInstances[0].DBName' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+
+          if [ -z "$RDS_ENDPOINT" ] || [ "$RDS_ENDPOINT" == "None" ]; then
+            echo "Error: Could not retrieve RDS endpoint for ${RDS_IDENTIFIER}"
+            exit 1
+          fi
+
+          echo "RDS Endpoint: ${RDS_ENDPOINT}"
+          echo "RDS Port: ${RDS_PORT}"
+          echo "RDS Database: ${RDS_DB_NAME}"
+
+          echo "host=${RDS_ENDPOINT}" >> $GITHUB_OUTPUT
+          echo "port=${RDS_PORT}" >> $GITHUB_OUTPUT
+          echo "database=${RDS_DB_NAME}" >> $GITHUB_OUTPUT
+
       - name: Configure Kubernetes
         run: |
           echo "Configuring Kubernetes access for EKS cluster"
@@ -259,15 +313,38 @@ jobs:
 
       - name: Deploy to ${{ needs.initialize.outputs.environment }}
         run: |
-          echo "Deploying version ${{ needs.initialize.outputs.tag }} to ${{ needs.initialize.outputs.environment }}"
+          TAG="${{ needs.initialize.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          RDS_SSL_MODE="${{ secrets.RDS_SSL_MODE }}"
+
+          # Set default SSL mode if not provided
+          RDS_SSL_MODE="${RDS_SSL_MODE:-require}"
+
+          echo "Deploying version ${TAG} to ${{ needs.initialize.outputs.environment }}"
           echo "Using values file: ${{ needs.initialize.outputs.values-file }}"
           echo "Target namespace: ${{ needs.initialize.outputs.namespace }}"
+          echo "ECR Registry: ${ECR_REGISTRY}"
+          echo "RDS Host: ${{ steps.rds.outputs.host }}"
+          echo "RDS Port: ${{ steps.rds.outputs.port }}"
+          echo "RDS Database: ${{ steps.rds.outputs.database }}"
 
           helm upgrade --install \
             -n ${{ needs.initialize.outputs.namespace }} \
             backend \
             ./helm \
             -f ./helm/${{ needs.initialize.outputs.values-file }} \
-            --set appVersionTag=${{ needs.initialize.outputs.tag }} \
+            --set appVersionTag=${TAG} \
+            --set image.repository=${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }} \
+            --set image.tag=php-fpm-${TAG} \
+            --set nginxImage.repository=${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }} \
+            --set nginxImage.tag=nginx-${TAG} \
+            --set postgresOperator.enabled=false \
+            --set postgresql.enabled=false \
+            --set rds.host="${{ steps.rds.outputs.host }}" \
+            --set rds.port="${{ steps.rds.outputs.port }}" \
+            --set rds.database="${{ steps.rds.outputs.database }}" \
+            --set rds.sslMode="${RDS_SSL_MODE}" \
+            --set appSecrets.stringData.DB_USERNAME="${{ secrets.RDS_USERNAME }}" \
+            --set appSecrets.stringData.DB_PASSWORD="${{ secrets.RDS_PASSWORD }}" \
             --wait \
             --timeout 10m
