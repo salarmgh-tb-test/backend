@@ -30,6 +30,15 @@ appConfig:
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "10"
 
+appSecrets:
+  enabled: true
+  name: app-secrets
+  stringData:
+    # Laravel APP_KEY - generate with: php artisan key:generate --show
+    # Or use: base64:$(openssl rand -base64 32)
+    APP_KEY: "base64:CHANGE_ME_GENERATE_A_NEW_KEY"
+    JWT_SECRET: "change-me"
+
 ingress:
   enabled: true
   className: "alb"
@@ -38,7 +47,7 @@ ingress:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/certificate-arn: ""  # Set your ACM certificate ARN here
+    alb.ingress.kubernetes.io/certificate-arn: "" # Set your ACM certificate ARN here
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
@@ -54,12 +63,12 @@ ingress:
     # Then access your service using that ALB DNS name (e.g., https://k8s-default-backend-xxxxx.eu-north-1.elb.amazonaws.com)
     # Note: For HTTPS, you'll need to set alb.ingress.kubernetes.io/certificate-arn above
     # The ALB will accept requests to its DNS name regardless of this host value
-    - host: staging-backend.local  # Placeholder - actual access via ALB DNS name
+    - host: staging-backend.local # Placeholder - actual access via ALB DNS name
       paths:
         - path: /
           pathType: ImplementationSpecific
   tls:
     - secretName: staging-backend-tls
       hosts:
-        - staging-backend.local  # TLS will work with ALB DNS name if certificate-arn is set
+        - staging-backend.local # TLS will work with ALB DNS name if certificate-arn is set
 

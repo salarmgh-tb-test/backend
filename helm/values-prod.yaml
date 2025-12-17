@@ -44,6 +44,16 @@ appConfig:
     DB_SSL_MODE: "require"
     DB_POOL_SIZE: "50"
 
+appSecrets:
+  enabled: true
+  name: app-secrets
+  stringData:
+    # Laravel APP_KEY - generate with: php artisan key:generate --show
+    # Or use: base64:$(openssl rand -base64 32)
+    # IMPORTANT: Use a unique, secure key for production!
+    APP_KEY: "base64:CHANGE_ME_GENERATE_A_NEW_KEY"
+    JWT_SECRET: "change-me"
+
 ingress:
   enabled: true
   className: "alb"

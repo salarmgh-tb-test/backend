@@ -26,6 +26,15 @@ appConfig:
     DB_DATABASE: "backend_dev"
     DB_SSL_MODE: "prefer"
 
+appSecrets:
+  enabled: true
+  name: app-secrets
+  stringData:
+    # Laravel APP_KEY - generate with: php artisan key:generate --show
+    # Or use: base64:$(openssl rand -base64 32)
+    APP_KEY: "base64:CHANGE_ME_GENERATE_A_NEW_KEY"
+    JWT_SECRET: "change-me"
+
 ingress:
   enabled: true
   className: "alb"
