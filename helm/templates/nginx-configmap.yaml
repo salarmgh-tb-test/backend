@@ -42,18 +42,9 @@ data:
         index  index.php index.html;
 
         {{- if .Values.nginxConfig.corsAllowOrigin }}
-        # CORS headers
-        set $cors_origin "{{ .Values.nginxConfig.corsAllowOrigin }}";
-
-        add_header 'Access-Control-Allow-Origin' $cors_origin always;
-        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
-        add_header 'Access-Control-Allow-Credentials' 'true' always;
-        add_header 'Access-Control-Max-Age' 1728000 always;
-
-        # Handle preflight requests
-        if ($request_method = 'OPTIONS') {
-          add_header 'Access-Control-Allow-Origin' $cors_origin always;
+        # Handle preflight OPTIONS requests
+        location @cors_preflight {
+          add_header 'Access-Control-Allow-Origin' '{{ .Values.nginxConfig.corsAllowOrigin }}' always;
           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
           add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
           add_header 'Access-Control-Allow-Credentials' 'true' always;
@@ -65,10 +56,28 @@ data:
         {{- end }}
 
         location / {
+          {{- if .Values.nginxConfig.corsAllowOrigin }}
+          if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '{{ .Values.nginxConfig.corsAllowOrigin }}' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Max-Age' 1728000;
+            add_header 'Content-Type' 'text/plain; charset=utf-8';
+            add_header 'Content-Length' 0;
+            return 204;
+          }
+          {{- end }}
           try_files $uri $uri/ /index.php?$query_string;
         }
 
         location ~ \.php$ {
+          {{- if .Values.nginxConfig.corsAllowOrigin }}
+          add_header 'Access-Control-Allow-Origin' '{{ .Values.nginxConfig.corsAllowOrigin }}' always;
+          add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+          add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+          add_header 'Access-Control-Allow-Credentials' 'true' always;
+          {{- end }}
           include        fastcgi_params;
           fastcgi_pass   php-fpm;
           fastcgi_index  index.php;
