@@ -36,6 +36,9 @@ appSecrets:
     APP_KEY: "base64:76sQIX/vQyRd548JKWgVgXOWJgPIk3P0SljGiL6DL2g="
     JWT_SECRET: "change-me"
 
+nginxConfig:
+  corsAllowOrigin: "http://staging-frontend.test"
+
 ingress:
   enabled: true
   className: "alb"
@@ -53,5 +56,5 @@ ingress:
     - host: staging-backend.test
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []

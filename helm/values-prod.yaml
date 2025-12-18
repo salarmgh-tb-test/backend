@@ -50,6 +50,9 @@ appSecrets:
     APP_KEY: "base64:Fa6nZ0a/IGxMNreEZ1yed6z/G1LoAANJh0DXWTYGX/M="
     JWT_SECRET: "change-me"
 
+nginxConfig:
+  corsAllowOrigin: "http://frontend.test"
+
 ingress:
   enabled: true
   className: "alb"
@@ -67,7 +70,7 @@ ingress:
     - host: backend.test
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
 
 podDisruptionBudget:

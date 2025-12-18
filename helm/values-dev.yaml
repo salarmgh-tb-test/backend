@@ -32,6 +32,9 @@ appSecrets:
     APP_KEY: "base64:qLnGVkERzZS43UZNGJcyUwKcwH/ch2aF/cGG56OHfgg="
     JWT_SECRET: "change-me"
 
+nginxConfig:
+  corsAllowOrigin: "http://dev-frontend.test"
+
 ingress:
   enabled: true
   className: "alb"
@@ -49,5 +52,5 @@ ingress:
     - host: dev-backend.test
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
