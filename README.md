@@ -17,7 +17,6 @@ The backend service is a Laravel application deployed to Kubernetes using Helm c
 
 -   Termination grace period (60s) for in-flight requests
 -   Database connection pooling
--   OpenTelemetry integration for observability
 -   Observability dependencies (Prometheus Operator) managed via Helm chart dependencies
 
 ## Dependencies & Observability
@@ -157,7 +156,6 @@ The backend service is a Laravel application deployed to Kubernetes using Helm c
 
 -   **Metrics**: Prometheus + Grafana
 -   **Logging**: ELK Stack or Loki
--   **Tracing**: Jaeger (via OpenTelemetry)
 
 **Key Metrics to Monitor**:
 
