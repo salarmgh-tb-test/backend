@@ -26,8 +26,7 @@ RUN apk add --no-cache --virtual .build-deps \
     docker-php-ext-install pdo pdo_pgsql intl && \
     pecl install grpc && \
     pecl install protobuf && \
-    pecl install opentelemetry && \
-    docker-php-ext-enable grpc protobuf opentelemetry && \
+    docker-php-ext-enable grpc protobuf && \
     apk del .build-deps
 
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer

@@ -261,8 +261,9 @@ jobs:
 
       - name: Get RDS information from AWS
         id: rds
+        if: needs.initialize.outputs.environment != 'dev'
         run: |
-          # Get RDS instance identifier from secret (e.g., tradebytes-dev-db, tradebytes-staging-db, tradebytes-prod-db)
+          # Get RDS instance identifier from secret (e.g., tradebytes-staging-db, tradebytes-prod-db)
           RDS_IDENTIFIER="${{ secrets.RDS_IDENTIFIER }}"
 
           if [ -z "$RDS_IDENTIFIER" ]; then
@@ -315,21 +316,17 @@ jobs:
         run: |
           TAG="${{ needs.initialize.outputs.tag }}"
           ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
-          RDS_SSL_MODE="${{ secrets.RDS_SSL_MODE }}"
+          ENV="${{ needs.initialize.outputs.environment }}"
+          NAMESPACE="${{ needs.initialize.outputs.namespace }}"
 
-          # Set default SSL mode if not provided
-          RDS_SSL_MODE="${RDS_SSL_MODE:-require}"
-
-          echo "Deploying version ${TAG} to ${{ needs.initialize.outputs.environment }}"
+          echo "Deploying version ${TAG} to ${ENV}"
           echo "Using values file: ${{ needs.initialize.outputs.values-file }}"
-          echo "Target namespace: ${{ needs.initialize.outputs.namespace }}"
+          echo "Target namespace: ${NAMESPACE}"
           echo "ECR Registry: ${ECR_REGISTRY}"
-          echo "RDS Host: ${{ steps.rds.outputs.host }}"
-          echo "RDS Port: ${{ steps.rds.outputs.port }}"
-          echo "RDS Database: ${{ steps.rds.outputs.database }}"
 
-          helm upgrade --install \
-            -n ${{ needs.initialize.outputs.namespace }} \
+          # Build base Helm command
+          HELM_CMD="helm upgrade --install \
+            -n ${NAMESPACE} \
             backend \
             ./helm \
             -f ./helm/${{ needs.initialize.outputs.values-file }} \
@@ -337,14 +334,41 @@ jobs:
             --set image.repository=${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }} \
             --set image.tag=php-fpm-${TAG} \
             --set nginxImage.repository=${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }} \
-            --set nginxImage.tag=nginx-${TAG} \
-            --set postgresOperator.enabled=false \
-            --set postgresql.enabled=false \
-            --set rds.host="${{ steps.rds.outputs.host }}" \
-            --set rds.port="${{ steps.rds.outputs.port }}" \
-            --set rds.database="${{ steps.rds.outputs.database }}" \
-            --set rds.sslMode="${RDS_SSL_MODE}" \
-            --set appSecrets.stringData.DB_USERNAME="${{ secrets.RDS_USERNAME }}" \
-            --set appSecrets.stringData.DB_PASSWORD="${{ secrets.RDS_PASSWORD }}" \
-            --wait \
-            --timeout 10m
+            --set nginxImage.tag=nginx-${TAG}"
+
+          # For dev environment: use postgres-operator and postgresql
+          if [ "${ENV}" == "dev" ]; then
+            echo "Configuring for dev environment: using postgres-operator and postgresql"
+            echo "PostgreSQL will be deployed via postgres-operator"
+            echo "Credentials will be read from postgres secret: backend-service-user.tradebytes-postgres.credentials.postgresql.acid.zalan.do"
+
+            HELM_CMD="${HELM_CMD} \
+              --set postgresOperator.enabled=true \
+              --set postgresql.enabled=true \
+              --set postgresql.name=tradebytes-postgres \
+              --set postgresql.namespace=${NAMESPACE}"
+          else
+            # For staging/prod: use RDS
+            RDS_SSL_MODE="${{ secrets.RDS_SSL_MODE }}"
+            RDS_SSL_MODE="${RDS_SSL_MODE:-require}"
+
+            echo "Configuring for ${ENV} environment: using RDS"
+            echo "RDS Host: ${{ steps.rds.outputs.host }}"
+            echo "RDS Port: ${{ steps.rds.outputs.port }}"
+            echo "RDS Database: ${{ steps.rds.outputs.database }}"
+
+            HELM_CMD="${HELM_CMD} \
+              --set postgresOperator.enabled=false \
+              --set postgresql.enabled=false \
+              --set rds.host=\"${{ steps.rds.outputs.host }}\" \
+              --set rds.port=\"${{ steps.rds.outputs.port }}\" \
+              --set rds.database=\"${{ steps.rds.outputs.database }}\" \
+              --set rds.sslMode=\"${RDS_SSL_MODE}\" \
+              --set appSecrets.stringData.DB_USERNAME=\"${{ secrets.RDS_USERNAME }}\" \
+              --set appSecrets.stringData.DB_PASSWORD=\"${{ secrets.RDS_PASSWORD }}\""
+          fi
+
+          HELM_CMD="${HELM_CMD} --wait --timeout 10m"
+
+          echo "Executing Helm command..."
+          eval ${HELM_CMD}
