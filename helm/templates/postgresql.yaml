@@ -8,6 +8,9 @@ spec:
   teamId: {{ .Values.postgresql.teamId | quote }}
   volume:
     size: {{ .Values.postgresql.volume.size }}
+    {{- if .Values.postgresql.volume.storageClass }}
+    storageClass: {{ .Values.postgresql.volume.storageClass }}
+    {{- end }}
   numberOfInstances: {{ .Values.postgresql.numberOfInstances }}
   users:
     {{- range $user, $roles := .Values.postgresql.users }}

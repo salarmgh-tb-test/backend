@@ -20,6 +20,7 @@ postgresql:
   teamId: "tradebytes"
   volume:
     size: 10Gi
+    storageClass: gp2
   numberOfInstances: 2
   users:
     root:
